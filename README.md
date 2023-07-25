@@ -50,7 +50,7 @@ async fn main() -> std::io::Result<()> {
 
 ## Math Server Example
 
-The following example is slightly more advanced, demonstrating how `AsyncService` and a typle of inputs may be used:
+The following example is slightly more advanced, demonstrating how `AsyncService` and a tuple of inputs may be used:
 
 ```rust
 use std::{io::Error, io::ErrorKind};
