@@ -7,7 +7,8 @@ use sod_actix_web::ws::{WsMessage, WsSessionEvent, WsSessionFactory};
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     struct EchoService;
-    impl MutService<WsSessionEvent> for EchoService {
+    impl MutService for EchoService {
+        type Input = WsSessionEvent;
         type Output = Option<WsMessage>;
         type Error = Infallible;
         fn process(&mut self, event: WsSessionEvent) -> Result<Self::Output, Self::Error> {

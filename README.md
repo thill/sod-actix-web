@@ -29,7 +29,8 @@ use sod_actix_web::ServiceHandler;
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     struct GreetService;
-    impl Service<web::Path<String>> for GreetService {
+    impl Service for GreetService {
+        type Input = web::Path<String>;
         type Output = String;
         type Error = std::convert::Infallible;
         fn process(&self, name: web::Path<String>) -> Result<Self::Output, Self::Error> {
@@ -39,7 +40,7 @@ async fn main() -> std::io::Result<()> {
 
     HttpServer::new(|| {
         App::new().service(
-            web::resource("/greet/{name}").route(web::get().to(ServiceHandler::new(GreetService))),
+            web::resource("/greet/{name}").route(web::get().to(ServiceHandler::new(GreetService.into_async()))),
         )
     })
     .bind(("127.0.0.1", 8080))?
@@ -69,7 +70,8 @@ async fn main() -> std::io::Result<()> {
 
     struct MathService;
     #[async_trait]
-    impl AsyncService<(web::Path<String>, web::Query<MathParams>)> for MathService {
+    impl AsyncService for MathService {
+        type Input = (web::Path<String>, web::Query<MathParams>);
         type Output = String;
         type Error = Error;
         async fn process(

@@ -15,7 +15,8 @@ async fn main() -> std::io::Result<()> {
 
     struct MathService;
     #[async_trait]
-    impl AsyncService<(web::Path<String>, web::Query<MathParams>)> for MathService {
+    impl AsyncService for MathService {
+        type Input = (web::Path<String>, web::Query<MathParams>);
         type Output = String;
         type Error = Error;
         async fn process(

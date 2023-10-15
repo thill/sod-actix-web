@@ -21,7 +21,7 @@
 //! The following example mirrors the default [`actix_web`] greeter example, except it uses the service abstraction
 //! provided by this library:
 //!
-//! ```rust
+//! ```rust,no_run
 //! use actix_web::{web, App, HttpServer};
 //! use sod::Service;
 //! use sod_actix_web::ServiceHandler;
@@ -29,7 +29,8 @@
 //! #[actix_web::main]
 //! async fn main() -> std::io::Result<()> {
 //!     struct GreetService;
-//!     impl Service<web::Path<String>> for GreetService {
+//!     impl Service for GreetService {
+//!         type Input = web::Path<String>;
 //!         type Output = String;
 //!         type Error = std::convert::Infallible;
 //!         fn process(&self, name: web::Path<String>) -> Result<Self::Output, Self::Error> {
@@ -39,7 +40,7 @@
 //!
 //!     HttpServer::new(|| {
 //!         App::new().service(
-//!             web::resource("/greet/{name}").route(web::get().to(ServiceHandler::new(GreetService))),
+//!             web::resource("/greet/{name}").route(web::get().to(ServiceHandler::new(GreetService.into_async()))),
 //!         )
 //!     })
 //!     .bind(("127.0.0.1", 8080))?
@@ -52,7 +53,7 @@
 //!
 //! The following example is slightly more advanced, demonstrating how [`AsyncService`] and a tuple of inputs may be used:
 //!
-//! ```rust
+//! ```rust,no_run
 //! use std::{io::Error, io::ErrorKind};
 //! use actix_web::{web, App, HttpServer};
 //! use serde_derive::Deserialize;
@@ -69,7 +70,8 @@
 //!
 //!     struct MathService;
 //!     #[async_trait]
-//!     impl AsyncService<(web::Path<String>, web::Query<MathParams>)> for MathService {
+//!     impl AsyncService for MathService {
+//!         type Input = (web::Path<String>, web::Query<MathParams>);
 //!         type Output = String;
 //!         type Error = Error;
 //!         async fn process(
@@ -105,7 +107,7 @@
 use std::{future::Future, marker::PhantomData, pin::Pin, sync::Arc};
 
 use actix_web::{FromRequest, Handler, Responder, ResponseError};
-use sod::{AsyncService, IntoAsyncService};
+use sod::AsyncService;
 
 mod sealed;
 pub mod ws;
@@ -120,7 +122,7 @@ pub mod ws;
 pub struct ServiceHandler<Args, S>
 where
     Args: FromRequest + 'static,
-    S: AsyncService<Args> + 'static,
+    S: AsyncService<Input = Args> + 'static,
     S::Output: Responder + 'static,
     S::Error: ResponseError + 'static,
 {
@@ -130,14 +132,14 @@ where
 impl<Args, S> ServiceHandler<Args, S>
 where
     Args: FromRequest + 'static,
-    S: AsyncService<Args> + 'static,
+    S: AsyncService<Input = Args> + 'static,
     S::Output: Responder + 'static,
     S::Error: ResponseError + 'static,
 {
     /// Encapsulate the given [`sod::AsyncService`] or [`sod::Service`] to be used as an [`actix_web::Handler`]
-    pub fn new<I: IntoAsyncService<Args, S>>(service: I) -> Self {
+    pub fn new(service: S) -> Self {
         Self {
-            service: Arc::new(service.into_async()),
+            service: Arc::new(service),
             _phantom: PhantomData,
         }
     }
@@ -145,7 +147,7 @@ where
 impl<Args, S> Clone for ServiceHandler<Args, S>
 where
     Args: FromRequest + 'static,
-    S: AsyncService<Args> + 'static,
+    S: AsyncService<Input = Args> + 'static,
     S::Output: Responder + 'static,
     S::Error: ResponseError + 'static,
 {
@@ -159,7 +161,7 @@ where
 impl<Args, S> Handler<Args> for ServiceHandler<Args, S>
 where
     Args: FromRequest + Send + 'static,
-    S: AsyncService<Args> + Send + Sync + 'static,
+    S: AsyncService<Input = Args> + Send + Sync + 'static,
     S::Output: Responder + Send + 'static,
     S::Error: ResponseError + Send + 'static,
 {

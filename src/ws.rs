@@ -14,7 +14,7 @@
 //!   is used as a callback to handle errors returned by your service implementation.
 //!
 //! Actix Wiring:
-//! ```rust
+//! ```rust,compile_fail
 //! web::resource("/echo").route(web::get().to(WsSessionFactory::new(
 //!   |_req| Ok(EchoService),
 //!   |_service, err| println!("ERROR: {err}"),
@@ -42,7 +42,7 @@
 //! session will be closed.
 //!
 //! A common error handler impl is to log the error and close the session:
-//! ```rust
+//! ```rust,compile_fail
 //! |_, err| {
 //!     log::error!("Session Error: {err}");
 //!     Err(err)
@@ -62,7 +62,7 @@
 //! purpose of Ping/Pong responses.
 //!
 //! ## Echo Example
-//! ```rust
+//! ```rust,no_run
 //! use std::convert::Infallible;
 //! use actix_web::{web, App, HttpServer};
 //! use sod::MutService;
@@ -71,7 +71,8 @@
 //! #[actix_web::main]
 //! async fn main() -> std::io::Result<()> {
 //!     struct EchoService;
-//!     impl MutService<WsSessionEvent> for EchoService {
+//!     impl MutService for EchoService {
+//!         type Input = WsSessionEvent;
 //!         type Output = Option<WsMessage>;
 //!         type Error = Infallible;
 //!         fn process(&mut self, event: WsSessionEvent) -> Result<Self::Output, Self::Error> {
@@ -111,7 +112,7 @@ use std::{marker::PhantomData, sync::Arc};
 use actix::{prelude::SendError, Actor, AsyncContext, Recipient, StreamHandler};
 use actix_web::{web, Error, Handler, HttpRequest, HttpResponse};
 use actix_web_actors::ws::{self, CloseCode, CloseReason};
-use sod::{IntoMutService, MutService, Service};
+use sod::{MutService, Service};
 
 use crate::sealed::SettableFuture;
 
@@ -119,24 +120,22 @@ use crate::sealed::SettableFuture;
 /// established by client, and acts as a [`actix_web`] [`Handler`].
 ///
 /// See the this module's documentation for details and examples.
-pub struct WsSessionFactory<O, S, I, F, E>
+pub struct WsSessionFactory<O, S, F, E>
 where
     O: Into<Option<WsMessage>> + Unpin + 'static,
-    S: MutService<WsSessionEvent, Output = O> + Unpin + 'static,
-    I: IntoMutService<WsSessionEvent, S> + 'static,
-    F: Fn(&HttpRequest) -> Result<I, Error> + 'static,
+    S: MutService<Input = WsSessionEvent, Output = O> + Unpin + 'static,
+    F: Fn(&HttpRequest) -> Result<S, Error> + 'static,
     E: Fn(&mut S, S::Error) -> Result<(), S::Error> + Unpin + 'static,
 {
     factory: Arc<F>,
     error_handler: Arc<E>,
-    _phantom: PhantomData<fn(I, O, S)>,
+    _phantom: PhantomData<fn(O, S)>,
 }
-impl<O, S, I, F, E> WsSessionFactory<O, S, I, F, E>
+impl<O, S, F, E> WsSessionFactory<O, S, F, E>
 where
     O: Into<Option<WsMessage>> + Unpin + 'static,
-    S: MutService<WsSessionEvent, Output = O> + Unpin + 'static,
-    I: IntoMutService<WsSessionEvent, S> + 'static,
-    F: Fn(&HttpRequest) -> Result<I, Error> + 'static,
+    S: MutService<Input = WsSessionEvent, Output = O> + Unpin + 'static,
+    F: Fn(&HttpRequest) -> Result<S, Error> + 'static,
     E: Fn(&mut S, S::Error) -> Result<(), S::Error> + Unpin + 'static,
 {
     /// Encapsulate the given [`sod::Service`] or [`sod::MutService`] factory and error handler,
@@ -150,12 +149,11 @@ where
         }
     }
 }
-impl<O, S, I, F, E> Clone for WsSessionFactory<O, S, I, F, E>
+impl<O, S, F, E> Clone for WsSessionFactory<O, S, F, E>
 where
     O: Into<Option<WsMessage>> + Unpin + 'static,
-    S: MutService<WsSessionEvent, Output = O> + Unpin + 'static,
-    I: IntoMutService<WsSessionEvent, S> + 'static,
-    F: Fn(&HttpRequest) -> Result<I, Error> + 'static,
+    S: MutService<Input = WsSessionEvent, Output = O> + Unpin + 'static,
+    F: Fn(&HttpRequest) -> Result<S, Error> + 'static,
     E: Fn(&mut S, S::Error) -> Result<(), S::Error> + Unpin + 'static,
 {
     fn clone(&self) -> Self {
@@ -166,12 +164,11 @@ where
         }
     }
 }
-impl<O, S, I, F, E> Handler<(HttpRequest, web::Payload)> for WsSessionFactory<O, S, I, F, E>
+impl<O, S, F, E> Handler<(HttpRequest, web::Payload)> for WsSessionFactory<O, S, F, E>
 where
     O: Into<Option<WsMessage>> + Unpin + 'static,
-    S: MutService<WsSessionEvent, Output = O> + Unpin + 'static,
-    I: IntoMutService<WsSessionEvent, S> + Send + 'static,
-    F: Fn(&HttpRequest) -> Result<I, Error> + 'static,
+    S: MutService<Input = WsSessionEvent, Output = O> + Unpin + 'static,
+    F: Fn(&HttpRequest) -> Result<S, Error> + 'static,
     E: Fn(&mut S, S::Error) -> Result<(), S::Error> + Unpin + 'static,
 {
     type Output = Result<HttpResponse, Error>;
@@ -179,7 +176,7 @@ where
     fn call(&self, (req, stream): (HttpRequest, web::Payload)) -> Self::Future {
         let result = match (self.factory)(&req) {
             Ok(service) => ws::start(
-                WsActor::new(service.into_mut(), Arc::clone(&self.error_handler)),
+                WsActor::new(service, Arc::clone(&self.error_handler)),
                 &req,
                 stream,
             ),
@@ -203,7 +200,8 @@ impl WsSendService {
         Self { recipient }
     }
 }
-impl Service<WsMessage> for WsSendService {
+impl Service for WsSendService {
+    type Input = WsMessage;
     type Output = ();
     type Error = SendError<WsMessage>;
     fn process(&self, msg: WsMessage) -> Result<Self::Output, Self::Error> {
@@ -277,7 +275,7 @@ impl actix::Message for WsMessage {
 struct WsActor<O, S, E>
 where
     O: Unpin + 'static,
-    S: MutService<WsSessionEvent, Output = O> + Unpin + 'static,
+    S: MutService<Input = WsSessionEvent, Output = O> + Unpin + 'static,
     E: Fn(&mut S, S::Error) -> Result<(), S::Error> + Unpin + 'static,
 {
     service: S,
@@ -287,7 +285,7 @@ where
 impl<O, S, E> WsActor<O, S, E>
 where
     O: Into<Option<WsMessage>> + Unpin + 'static,
-    S: MutService<WsSessionEvent, Output = O> + Unpin + 'static,
+    S: MutService<Input = WsSessionEvent, Output = O> + Unpin + 'static,
     E: Fn(&mut S, S::Error) -> Result<(), S::Error> + Unpin + 'static,
 {
     fn new(service: S, error_handler: Arc<E>) -> Self {
@@ -301,7 +299,7 @@ where
 impl<O, S, E> Actor for WsActor<O, S, E>
 where
     O: Into<Option<WsMessage>> + Unpin + 'static,
-    S: MutService<WsSessionEvent, Output = O> + Unpin + 'static,
+    S: MutService<Input = WsSessionEvent, Output = O> + Unpin + 'static,
     E: Fn(&mut S, S::Error) -> Result<(), S::Error> + Unpin + 'static,
 {
     type Context = ws::WebsocketContext<Self>;
@@ -332,7 +330,7 @@ where
 impl<O, S, E> actix::Handler<WsMessage> for WsActor<O, S, E>
 where
     O: Into<Option<WsMessage>> + Unpin + 'static,
-    S: MutService<WsSessionEvent, Output = O> + Unpin + 'static,
+    S: MutService<Input = WsSessionEvent, Output = O> + Unpin + 'static,
     E: Fn(&mut S, S::Error) -> Result<(), S::Error> + Unpin + 'static,
 {
     type Result = ();
@@ -349,7 +347,7 @@ where
 impl<O, S, E> StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsActor<O, S, E>
 where
     O: Into<Option<WsMessage>> + Unpin + 'static,
-    S: MutService<WsSessionEvent, Output = O> + Unpin + 'static,
+    S: MutService<Input = WsSessionEvent, Output = O> + Unpin + 'static,
     E: Fn(&mut S, S::Error) -> Result<(), S::Error> + Unpin + 'static,
 {
     fn handle(&mut self, msg: Result<ws::Message, ws::ProtocolError>, ctx: &mut Self::Context) {
